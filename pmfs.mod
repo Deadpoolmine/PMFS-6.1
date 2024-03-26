@@ -1,0 +1,13 @@
+/home/deadpool/PM-ARCH/PMFS-6.1/bbuild.o
+/home/deadpool/PM-ARCH/PMFS-6.1/balloc.o
+/home/deadpool/PM-ARCH/PMFS-6.1/dir.o
+/home/deadpool/PM-ARCH/PMFS-6.1/file.o
+/home/deadpool/PM-ARCH/PMFS-6.1/inode.o
+/home/deadpool/PM-ARCH/PMFS-6.1/namei.o
+/home/deadpool/PM-ARCH/PMFS-6.1/super.o
+/home/deadpool/PM-ARCH/PMFS-6.1/symlink.o
+/home/deadpool/PM-ARCH/PMFS-6.1/ioctl.o
+/home/deadpool/PM-ARCH/PMFS-6.1/pmfs_stats.o
+/home/deadpool/PM-ARCH/PMFS-6.1/journal.o
+/home/deadpool/PM-ARCH/PMFS-6.1/xip.o
+/home/deadpool/PM-ARCH/PMFS-6.1/wprotect.o

@@ -51,7 +51,7 @@ long pmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (ret)
 			return ret;
 
-		if (!inode_owner_or_capable(inode)) {
+		if (!inode_owner_or_capable(&init_user_ns, inode)) {
 			ret = -EPERM;
 			goto flags_out;
 		}
@@ -101,7 +101,7 @@ flags_out:
 		return put_user(inode->i_generation, (int __user *)arg);
 	case FS_IOC_SETVERSION: {
 		__u32 generation;
-		if (!inode_owner_or_capable(inode))
+		if (!inode_owner_or_capable(&init_user_ns, inode))
 			return -EPERM;
 		ret = mnt_want_write_file(filp);
 		if (ret)

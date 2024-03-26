@@ -33,6 +33,7 @@
 #include <linux/backing-dev.h>
 #include <linux/list.h>
 #include <linux/dax.h>
+#include <uapi/linux/mount.h>
 #include "pmfs.h"
 
 int measure_timing = 0;
@@ -71,7 +72,8 @@ void pmfs_error_mng(struct super_block *sb, const char *fmt, ...)
 
 	if (test_opt(sb, ERRORS_PANIC))
 		panic("pmfs: panic from previous error\n");
-	if (test_opt(sb, ERRORS_RO)) {
+	if (test_opt(sb, ERRORS_RO))
+	{
 		printk(KERN_CRIT "pmfs err: remounting filesystem read-only");
 		sb->s_flags |= MS_RDONLY;
 	}
@@ -99,7 +101,7 @@ static inline int pmfs_has_huge_ioremap(struct super_block *sb)
 }
 
 static int pmfs_get_block_info(struct super_block *sb,
-	struct pmfs_sb_info *sbi)
+							   struct pmfs_sb_info *sbi)
 {
 	struct dax_device *dax_dev;
 	void *virt_addr = NULL;
@@ -107,22 +109,26 @@ static int pmfs_get_block_info(struct super_block *sb,
 	long size;
 	int ret;
 
-	ret = bdev_dax_supported(sb, PAGE_SIZE);
-	if (ret) {
-		pmfs_err(sb, "device does not support DAX\n");
-		return -EINVAL;
-	}
+	// ret = bdev_dax_supported(sb, PAGE_SIZE);
+	// if (ret) {
+	// 	pmfs_err(sb, "device does not support DAX\n");
+	// 	return -EINVAL;
+	// }
 
 	sbi->s_bdev = sb->s_bdev;
-	dax_dev = fs_dax_get_by_host(sb->s_bdev->bd_disk->disk_name);
-	if (!dax_dev) {
+	dax_dev = fs_dax_get_by_bdev(sb->s_bdev, &sbi->s_dax_part_off,
+								 NULL, NULL);
+	if (!dax_dev)
+	{
 		pmfs_err(sb, "Couldn't retrieve DAX device\n");
 		return -EINVAL;
 	}
 
-	size = dax_direct_access(dax_dev, 0, LONG_MAX / PAGE_SIZE,
-				&virt_addr, &__pfn_t) * PAGE_SIZE;
-	if (size <= 0) {
+	size = dax_direct_access(dax_dev, 0, LONG_MAX / PAGE_SIZE, DAX_ACCESS,
+							 &virt_addr, &__pfn_t) *
+		   PAGE_SIZE;
+	if (size <= 0)
+	{
 		pmfs_err(sb, "direct_access failed\n");
 		return -EINVAL;
 	}
@@ -147,36 +153,50 @@ static loff_t pmfs_max_size(int bits)
 	return res;
 }
 
-enum {
-	Opt_bpi, Opt_init, Opt_jsize,
-	Opt_num_inodes, Opt_mode, Opt_uid,
-	Opt_gid, Opt_blocksize, Opt_wprotect, Opt_wprotectold,
-	Opt_err_cont, Opt_err_panic, Opt_err_ro,
-	Opt_hugemmap, Opt_nohugeioremap, Opt_dbgmask, Opt_bs, Opt_err
+enum
+{
+	Opt_bpi,
+	Opt_init,
+	Opt_jsize,
+	Opt_num_inodes,
+	Opt_mode,
+	Opt_uid,
+	Opt_gid,
+	Opt_blocksize,
+	Opt_wprotect,
+	Opt_wprotectold,
+	Opt_err_cont,
+	Opt_err_panic,
+	Opt_err_ro,
+	Opt_hugemmap,
+	Opt_nohugeioremap,
+	Opt_dbgmask,
+	Opt_bs,
+	Opt_err
 };
 
 static const match_table_t tokens = {
-	{ Opt_bpi,	     "bpi=%u"		  },
-	{ Opt_init,	     "init"		  },
-	{ Opt_jsize,     "jsize=%s"		  },
-	{ Opt_num_inodes,"num_inodes=%u"  },
-	{ Opt_mode,	     "mode=%o"		  },
-	{ Opt_uid,	     "uid=%u"		  },
-	{ Opt_gid,	     "gid=%u"		  },
-	{ Opt_wprotect,	     "wprotect"		  },
-	{ Opt_wprotectold,   "wprotectold"	  },
-	{ Opt_err_cont,	     "errors=continue"	  },
-	{ Opt_err_panic,     "errors=panic"	  },
-	{ Opt_err_ro,	     "errors=remount-ro"  },
-	{ Opt_hugemmap,	     "hugemmap"		  },
-	{ Opt_nohugeioremap, "nohugeioremap"	  },
-	{ Opt_dbgmask,	     "dbgmask=%u"	  },
-	{ Opt_bs,	     "backing_dev=%s"	  },
-	{ Opt_err,	     NULL		  },
+	{Opt_bpi, "bpi=%u"},
+	{Opt_init, "init"},
+	{Opt_jsize, "jsize=%s"},
+	{Opt_num_inodes, "num_inodes=%u"},
+	{Opt_mode, "mode=%o"},
+	{Opt_uid, "uid=%u"},
+	{Opt_gid, "gid=%u"},
+	{Opt_wprotect, "wprotect"},
+	{Opt_wprotectold, "wprotectold"},
+	{Opt_err_cont, "errors=continue"},
+	{Opt_err_panic, "errors=panic"},
+	{Opt_err_ro, "errors=remount-ro"},
+	{Opt_hugemmap, "hugemmap"},
+	{Opt_nohugeioremap, "nohugeioremap"},
+	{Opt_dbgmask, "dbgmask=%u"},
+	{Opt_bs, "backing_dev=%s"},
+	{Opt_err, NULL},
 };
 
 static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
-			       bool remount)
+							  bool remount)
 {
 	char *p, *rest;
 	substring_t args[MAX_OPT_ARGS];
@@ -185,13 +205,15 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 	if (!options)
 		return 0;
 
-	while ((p = strsep(&options, ",")) != NULL) {
+	while ((p = strsep(&options, ",")) != NULL)
+	{
 		int token;
 		if (!*p)
 			continue;
 
 		token = match_token(p, tokens, args);
-		switch (token) {
+		switch (token)
+		{
 		case Opt_bpi:
 			if (remount)
 				goto bad_opt;
@@ -230,9 +252,10 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 			sbi->jsize = memparse(args[0].from, &rest);
 			/* make sure journal size is integer power of 2 */
 			if (sbi->jsize & (sbi->jsize - 1) ||
-				sbi->jsize < PMFS_MINIMUM_JOURNAL_SIZE) {
+				sbi->jsize < PMFS_MINIMUM_JOURNAL_SIZE)
+			{
 				pmfs_dbg("Invalid jsize: "
-					"must be whole power of 2 & >= 64KB\n");
+						 "must be whole power of 2 & >= 64KB\n");
 				goto bad_val;
 			}
 			break;
@@ -262,15 +285,13 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 			if (remount)
 				goto bad_opt;
 			set_opt(sbi->s_mount_opt, PROTECT);
-			pmfs_info
-				("PMFS: Enabling new Write Protection (CR0.WP)\n");
+			pmfs_info("PMFS: Enabling new Write Protection (CR0.WP)\n");
 			break;
 		case Opt_wprotectold:
 			if (remount)
 				goto bad_opt;
 			set_opt(sbi->s_mount_opt, PROTECT_OLD);
-			pmfs_info
-				("PMFS: Enabling old Write Protection (PAGE RW Bit)\n");
+			pmfs_info("PMFS: Enabling old Write Protection (PAGE RW Bit)\n");
 			break;
 		case Opt_hugemmap:
 			if (remount)
@@ -289,7 +310,8 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 				goto bad_val;
 			pmfs_dbgmask = option;
 			break;
-		default: {
+		default:
+		{
 			goto bad_opt;
 		}
 		}
@@ -299,14 +321,14 @@ static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 
 bad_val:
 	printk(KERN_INFO "Bad value '%s' for mount option '%s'\n", args[0].from,
-	       p);
+		   p);
 	return -EINVAL;
 bad_opt:
 	printk(KERN_INFO "Bad mount option: \"%s\"\n", p);
 	return -EINVAL;
 }
 
-static bool pmfs_check_size (struct super_block *sb, unsigned long size)
+static bool pmfs_check_size(struct super_block *sb, unsigned long size)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	unsigned long minimum_size, num_blocks;
@@ -317,7 +339,8 @@ static bool pmfs_check_size (struct super_block *sb, unsigned long size)
 	/* space required for inode table */
 	if (sbi->num_inodes > 0)
 		num_blocks = (sbi->num_inodes >>
-			(sb->s_blocksize_bits - PMFS_INODE_BITS)) + 1;
+					  (sb->s_blocksize_bits - PMFS_INODE_BITS)) +
+					 1;
 	else
 		num_blocks = 1;
 	minimum_size += (num_blocks << sb->s_blocksize_bits);
@@ -325,14 +348,13 @@ static bool pmfs_check_size (struct super_block *sb, unsigned long size)
 	minimum_size += sbi->jsize;
 
 	if (size < minimum_size)
-	    return false;
+		return false;
 
 	return true;
 }
 
-
 static struct pmfs_inode *pmfs_init(struct super_block *sb,
-				      unsigned long size)
+									unsigned long size)
 {
 	unsigned long blocksize;
 	u64 journal_meta_start, journal_data_start, inode_table_start;
@@ -347,7 +369,8 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	sbi->block_end = ((unsigned long)(size) >> PAGE_SHIFT);
 	sbi->num_free_blocks = ((unsigned long)(size) >> PAGE_SHIFT);
 
-	if (!sbi->virt_addr) {
+	if (!sbi->virt_addr)
+	{
 		printk(KERN_ERR "ioremap of the pmfs image failed(1)\n");
 		return ERR_PTR(-EINVAL);
 	}
@@ -365,34 +388,39 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	if (sbi->blocksize && sbi->blocksize != blocksize)
 		sbi->blocksize = blocksize;
 
-	if (!pmfs_check_size(sb, size)) {
+	if (!pmfs_check_size(sb, size))
+	{
 		pmfs_dbg("Specified PMFS size too small 0x%lx. Either increase"
-			" PMFS size, or reduce num. of inodes (minimum 32)" 
-			" or journal size (minimum 64KB)\n", size);
+				 " PMFS size, or reduce num. of inodes (minimum 32)"
+				 " or journal size (minimum 64KB)\n",
+				 size);
 		return ERR_PTR(-EINVAL);
 	}
 
 	journal_meta_start = sizeof(struct pmfs_super_block);
 	journal_meta_start = (journal_meta_start + CACHELINE_SIZE - 1) &
-		~(CACHELINE_SIZE - 1);
+						 ~(CACHELINE_SIZE - 1);
 	inode_table_start = journal_meta_start + sizeof(pmfs_journal_t);
 	inode_table_start = (inode_table_start + CACHELINE_SIZE - 1) &
-		~(CACHELINE_SIZE - 1);
+						~(CACHELINE_SIZE - 1);
 
-	if ((inode_table_start + sizeof(struct pmfs_inode)) > PMFS_SB_SIZE) {
+	if ((inode_table_start + sizeof(struct pmfs_inode)) > PMFS_SB_SIZE)
+	{
 		pmfs_dbg("PMFS super block defined too small. defined 0x%x, "
-				"required 0x%llx\n", PMFS_SB_SIZE,
-			inode_table_start + sizeof(struct pmfs_inode));
+				 "required 0x%llx\n",
+				 PMFS_SB_SIZE,
+				 inode_table_start + sizeof(struct pmfs_inode));
 		return ERR_PTR(-EINVAL);
 	}
 
 	journal_data_start = PMFS_SB_SIZE * 2;
 	journal_data_start = (journal_data_start + blocksize - 1) &
-		~(blocksize - 1);
+						 ~(blocksize - 1);
 
 	pmfs_dbg_verbose("journal meta start %llx data start 0x%llx, "
-		"journal size 0x%x, inode_table 0x%llx\n", journal_meta_start,
-		journal_data_start, sbi->jsize, inode_table_start);
+					 "journal size 0x%x, inode_table 0x%llx\n",
+					 journal_meta_start,
+					 journal_data_start, sbi->jsize, inode_table_start);
 	pmfs_dbg_verbose("max file name len %d\n", (unsigned int)PMFS_NAME_LEN);
 
 	super = pmfs_get_super(sb);
@@ -409,7 +437,8 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	pmfs_init_blockmap(sb, journal_data_start + sbi->jsize);
 	pmfs_memlock_range(sb, super, journal_data_start);
 
-	if (pmfs_journal_hard_init(sb, journal_data_start, sbi->jsize) < 0) {
+	if (pmfs_journal_hard_init(sb, journal_data_start, sbi->jsize) < 0)
+	{
 		printk(KERN_ERR "Journal hard initialization failed\n");
 		return ERR_PTR(-EINVAL);
 	}
@@ -417,9 +446,9 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	if (pmfs_init_inode_table(sb) < 0)
 		return ERR_PTR(-EINVAL);
 
-	pmfs_memunlock_range(sb, super, PMFS_SB_SIZE*2);
+	pmfs_memunlock_range(sb, super, PMFS_SB_SIZE * 2);
 	pmfs_sync_super(super);
-	pmfs_memlock_range(sb, super, PMFS_SB_SIZE*2);
+	pmfs_memlock_range(sb, super, PMFS_SB_SIZE * 2);
 
 	pmfs_flush_buffer(super, PMFS_SB_SIZE, false);
 	pmfs_flush_buffer((char *)super + PMFS_SB_SIZE, sizeof(*super), false);
@@ -438,9 +467,9 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	root_i->i_blocks = cpu_to_le64(1);
 	root_i->i_size = cpu_to_le64(sb->s_blocksize);
 	root_i->i_atime = root_i->i_mtime = root_i->i_ctime =
-		cpu_to_le32(get_seconds());
+		cpu_to_le32(ktime_get_seconds());
 	root_i->root = cpu_to_le64(pmfs_get_block_off(sb, blocknr,
-						       PMFS_BLOCK_TYPE_4K));
+												  PMFS_BLOCK_TYPE_4K));
 	root_i->height = 0;
 	/* pmfs_sync_inode(root_i); */
 	pmfs_memlock_inode(sb, root_i);
@@ -476,12 +505,12 @@ static inline void set_default_opts(struct pmfs_sb_info *sbi)
 
 static void pmfs_root_check(struct super_block *sb, struct pmfs_inode *root_pi)
 {
-/*
- *      if (root_pi->i_d.d_next) {
- *              pmfs_warn("root->next not NULL, trying to fix\n");
- *              goto fail1;
- *      }
- */
+	/*
+	 *      if (root_pi->i_d.d_next) {
+	 *              pmfs_warn("root->next not NULL, trying to fix\n");
+	 *              goto fail1;
+	 *      }
+	 */
 	if (!S_ISDIR(le16_to_cpu(root_pi->i_mode)))
 		pmfs_warn("root is not a directory!\n");
 #if 0
@@ -493,7 +522,7 @@ static void pmfs_root_check(struct super_block *sb, struct pmfs_inode *root_pi)
 }
 
 int pmfs_check_integrity(struct super_block *sb,
-			  struct pmfs_super_block *super)
+						 struct pmfs_super_block *super)
 {
 	struct pmfs_super_block *super_redund;
 
@@ -501,48 +530,53 @@ int pmfs_check_integrity(struct super_block *sb,
 		(struct pmfs_super_block *)((char *)super + PMFS_SB_SIZE);
 
 	/* Do sanity checks on the superblock */
-	if (le16_to_cpu(super->s_magic) != PMFS_SUPER_MAGIC) {
-		if (le16_to_cpu(super_redund->s_magic) != PMFS_SUPER_MAGIC) {
+	if (le16_to_cpu(super->s_magic) != PMFS_SUPER_MAGIC)
+	{
+		if (le16_to_cpu(super_redund->s_magic) != PMFS_SUPER_MAGIC)
+		{
 			printk(KERN_ERR "Can't find a valid pmfs partition\n");
 			goto out;
-		} else {
-			pmfs_warn
-				("Error in super block: try to repair it with "
-				"the redundant copy");
+		}
+		else
+		{
+			pmfs_warn("Error in super block: try to repair it with "
+					  "the redundant copy");
 			/* Try to auto-recover the super block */
 			if (sb)
 				pmfs_memunlock_super(sb, super);
 			memcpy(super, super_redund,
-				sizeof(struct pmfs_super_block));
+				   sizeof(struct pmfs_super_block));
 			if (sb)
 				pmfs_memlock_super(sb, super);
 			pmfs_flush_buffer(super, sizeof(*super), false);
 			pmfs_flush_buffer((char *)super + PMFS_SB_SIZE,
-				sizeof(*super), false);
-
+							  sizeof(*super), false);
 		}
 	}
 
 	/* Read the superblock */
-	if (pmfs_calc_checksum((u8 *)super, PMFS_SB_STATIC_SIZE(super))) {
+	if (pmfs_calc_checksum((u8 *)super, PMFS_SB_STATIC_SIZE(super)))
+	{
 		if (pmfs_calc_checksum((u8 *)super_redund,
-					PMFS_SB_STATIC_SIZE(super_redund))) {
+							   PMFS_SB_STATIC_SIZE(super_redund)))
+		{
 			printk(KERN_ERR "checksum error in super block\n");
 			goto out;
-		} else {
-			pmfs_warn
-				("Error in super block: try to repair it with "
-				"the redundant copy");
+		}
+		else
+		{
+			pmfs_warn("Error in super block: try to repair it with "
+					  "the redundant copy");
 			/* Try to auto-recover the super block */
 			if (sb)
 				pmfs_memunlock_super(sb, super);
 			memcpy(super, super_redund,
-				sizeof(struct pmfs_super_block));
+				   sizeof(struct pmfs_super_block));
 			if (sb)
 				pmfs_memlock_super(sb, super);
 			pmfs_flush_buffer(super, sizeof(*super), false);
 			pmfs_flush_buffer((char *)super + PMFS_SB_SIZE,
-				sizeof(*super), false);
+							  sizeof(*super), false);
 		}
 	}
 
@@ -562,24 +596,28 @@ static void pmfs_recover_truncate_list(struct super_block *sb)
 	if (ino_next == 0)
 		return;
 
-	while (ino_next != 0) {
+	while (ino_next != 0)
+	{
 		pi = pmfs_get_inode(sb, ino_next);
 		li = (struct pmfs_inode_truncate_item *)(pi + 1);
 		inode = pmfs_iget(sb, ino_next);
 		if (IS_ERR(inode))
 			break;
 		pmfs_dbg("Recover ino %llx nlink %d sz %llx:%llx\n", ino_next,
-			inode->i_nlink, pi->i_size, li->i_truncatesize);
-		if (inode->i_nlink) {
+				 inode->i_nlink, pi->i_size, li->i_truncatesize);
+		if (inode->i_nlink)
+		{
 			/* set allocation hint */
-			pmfs_set_blocksize_hint(sb, pi, 
-					le64_to_cpu(li->i_truncatesize));
+			pmfs_set_blocksize_hint(sb, pi,
+									le64_to_cpu(li->i_truncatesize));
 			pmfs_setsize(inode, le64_to_cpu(li->i_truncatesize));
 			pmfs_update_isize(inode, pi);
-		} else {
+		}
+		else
+		{
 			/* free the inode */
 			pmfs_dbg("deleting unreferenced inode %lx\n",
-				inode->i_ino);
+					 inode->i_ino);
 		}
 		iput(inode);
 		pmfs_flush_buffer(pi, CACHELINE_SIZE, false);
@@ -609,17 +647,23 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 	BUILD_BUG_ON(sizeof(struct pmfs_super_block) > PMFS_SB_SIZE);
 	BUILD_BUG_ON(sizeof(struct pmfs_inode) > PMFS_INODE_SIZE);
 
-	if (arch_has_pcommit()) {
+	if (arch_has_pcommit())
+	{
 		pmfs_info("arch has PCOMMIT support\n");
 		support_pcommit = 1;
-	} else {
+	}
+	else
+	{
 		pmfs_info("arch does not have PCOMMIT support\n");
 	}
 
-	if (arch_has_clwb()) {
+	if (arch_has_clwb())
+	{
 		pmfs_info("arch has CLWB support\n");
 		support_clwb = 1;
-	} else {
+	}
+	else
+	{
 		pmfs_info("arch does not have CLWB support\n");
 	}
 
@@ -656,7 +700,8 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 	set_opt(sbi->s_mount_opt, MOUNTING);
 
 	/* Init a new pmfs instance */
-	if (sbi->s_mount_opt & PMFS_MOUNT_FORMAT) {
+	if (sbi->s_mount_opt & PMFS_MOUNT_FORMAT)
+	{
 		root_pi = pmfs_init(sb, sbi->initsize);
 		if (IS_ERR(root_pi))
 			goto out;
@@ -664,24 +709,27 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto setup_sb;
 	}
 	pmfs_dbg_verbose("checking physical address 0x%016llx for pmfs image\n",
-		  (u64)sbi->phys_addr);
+					 (u64)sbi->phys_addr);
 
 	super = pmfs_get_super(sb);
 
-	if (pmfs_journal_soft_init(sb)) {
+	if (pmfs_journal_soft_init(sb))
+	{
 		retval = -EINVAL;
 		printk(KERN_ERR "Journal initialization failed\n");
 		goto out;
 	}
-	if (pmfs_recover_journal(sb)) {
+	if (pmfs_recover_journal(sb))
+	{
 		retval = -EINVAL;
 		printk(KERN_ERR "Journal recovery failed\n");
 		goto out;
 	}
 
-	if (pmfs_check_integrity(sb, super) == 0) {
+	if (pmfs_check_integrity(sb, super) == 0)
+	{
 		pmfs_dbg("Memory contains invalid pmfs %x:%x\n",
-				le16_to_cpu(super->s_magic), PMFS_SUPER_MAGIC);
+				 le16_to_cpu(super->s_magic), PMFS_SUPER_MAGIC);
 		goto out;
 	}
 
@@ -711,13 +759,15 @@ setup_sb:
 	sb->s_xattr = NULL;
 	sb->s_flags |= MS_NOSEC;
 	root_i = pmfs_iget(sb, PMFS_ROOT_INO);
-	if (IS_ERR(root_i)) {
+	if (IS_ERR(root_i))
+	{
 		retval = PTR_ERR(root_i);
 		goto out;
 	}
 
 	sb->s_root = d_make_root(root_i);
-	if (!sb->s_root) {
+	if (!sb->s_root)
+	{
 		printk(KERN_ERR "get pmfs root inode failed\n");
 		retval = -ENOMEM;
 		goto out;
@@ -729,10 +779,11 @@ setup_sb:
 	if ((sbi->s_mount_opt & PMFS_MOUNT_FORMAT) == 0)
 		pmfs_setup_blocknode_map(sb);
 
-	if (!(sb->s_flags & MS_RDONLY)) {
+	if (!(sb->s_flags & MS_RDONLY))
+	{
 		u64 mnt_write_time;
 		/* update mount time and write time atomically. */
-		mnt_write_time = (get_seconds() & 0xFFFFFFFF);
+		mnt_write_time = (ktime_get_seconds() & 0xFFFFFFFF);
 		mnt_write_time = mnt_write_time | (mnt_write_time << 32);
 
 		pmfs_memunlock_range(sb, &super->s_mtime, 8);
@@ -768,10 +819,11 @@ int pmfs_statfs(struct dentry *d, struct kstatfs *buf)
 	buf->f_ffree = (sbi->s_free_inodes_count);
 	buf->f_namelen = PMFS_NAME_LEN;
 	pmfs_dbg_verbose("pmfs_stats: total 4k free blocks 0x%llx\n",
-		buf->f_bfree);
+					 buf->f_bfree);
 	pmfs_dbg_verbose("total inodes 0x%x, free inodes 0x%x, "
-		"blocknodes 0x%lx\n", (sbi->s_inodes_count),
-		(sbi->s_free_inodes_count), (sbi->num_blocknode_allocated));
+					 "blocknodes 0x%lx\n",
+					 (sbi->s_inodes_count),
+					 (sbi->s_free_inodes_count), (sbi->num_blocknode_allocated));
 	return 0;
 }
 
@@ -829,13 +881,14 @@ int pmfs_remount(struct super_block *sb, int *mntflags, char *data)
 		goto restore_opt;
 
 	sb->s_flags = (sb->s_flags & ~MS_POSIXACL) |
-		      ((sbi->s_mount_opt & PMFS_MOUNT_POSIX_ACL) ? MS_POSIXACL : 0);
+				  ((sbi->s_mount_opt & PMFS_MOUNT_POSIX_ACL) ? MS_POSIXACL : 0);
 
-	if ((*mntflags & MS_RDONLY) != (sb->s_flags & MS_RDONLY)) {
+	if ((*mntflags & MS_RDONLY) != (sb->s_flags & MS_RDONLY))
+	{
 		u64 mnt_write_time;
 		ps = pmfs_get_super(sb);
 		/* update mount time and write time atomically. */
-		mnt_write_time = (get_seconds() & 0xFFFFFFFF);
+		mnt_write_time = (ktime_get_seconds() & 0xFFFFFFFF);
 		mnt_write_time = mnt_write_time | (mnt_write_time << 32);
 
 		pmfs_memunlock_range(sb, &ps->s_mtime, 8);
@@ -870,14 +923,16 @@ static void pmfs_put_super(struct super_block *sb)
 #endif
 
 	/* It's unmount time, so unmap the pmfs memory */
-	if (sbi->virt_addr) {
+	if (sbi->virt_addr)
+	{
 		pmfs_save_blocknode_mappings(sb);
 		pmfs_journal_uninit(sb);
 		sbi->virt_addr = NULL;
 	}
 
 	/* Free all the pmfs_blocknodes */
-	while (!list_empty(head)) {
+	while (!list_empty(head))
+	{
 		i = list_first_entry(head, struct pmfs_blocknode, link);
 		list_del(&i->link);
 		pmfs_free_blocknode(sb, i);
@@ -916,7 +971,8 @@ struct pmfs_blocknode *pmfs_alloc_blocknode(struct super_block *sb)
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	p = (struct pmfs_blocknode *)
 		kmem_cache_alloc(pmfs_blocknode_cachep, GFP_NOFS);
-	if (p) {
+	if (p)
+	{
 		sbi->num_blocknode_allocated++;
 	}
 	return p;
@@ -930,7 +986,7 @@ static struct inode *pmfs_alloc_inode(struct super_block *sb)
 	if (!vi)
 		return NULL;
 
-//	vi->vfs_inode.i_version = 1;
+	//	vi->vfs_inode.i_version = 1;
 	return &vi->vfs_inode;
 }
 
@@ -955,25 +1011,21 @@ static void init_once(void *foo)
 	inode_init_once(&vi->vfs_inode);
 }
 
-
 static int __init init_blocknode_cache(void)
 {
 	pmfs_blocknode_cachep = kmem_cache_create("pmfs_blocknode_cache",
-					sizeof(struct pmfs_blocknode),
-					0, (SLAB_RECLAIM_ACCOUNT |
-                                        SLAB_MEM_SPREAD), NULL);
+											  sizeof(struct pmfs_blocknode),
+											  0, (SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD), NULL);
 	if (pmfs_blocknode_cachep == NULL)
 		return -ENOMEM;
 	return 0;
 }
 
-
 static int __init init_inodecache(void)
 {
 	pmfs_inode_cachep = kmem_cache_create("pmfs_inode_cache",
-					       sizeof(struct pmfs_inode_info),
-					       0, (SLAB_RECLAIM_ACCOUNT |
-						   SLAB_MEM_SPREAD), init_once);
+										  sizeof(struct pmfs_inode_info),
+										  0, (SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD), init_once);
 	if (pmfs_inode_cachep == NULL)
 		return -ENOMEM;
 	return 0;
@@ -982,9 +1034,9 @@ static int __init init_inodecache(void)
 static int __init init_transaction_cache(void)
 {
 	pmfs_transaction_cachep = kmem_cache_create("pmfs_journal_transaction",
-			sizeof(pmfs_transaction_t), 0, (SLAB_RECLAIM_ACCOUNT |
-			SLAB_MEM_SPREAD), NULL);
-	if (pmfs_transaction_cachep == NULL) {
+												sizeof(pmfs_transaction_t), 0, (SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD), NULL);
+	if (pmfs_transaction_cachep == NULL)
+	{
 		pmfs_dbg("PMFS: failed to init transaction cache\n");
 		return -ENOMEM;
 	}
@@ -1019,32 +1071,32 @@ static void destroy_blocknode_cache(void)
  * for write_super.
  */
 static struct super_operations pmfs_sops = {
-	.alloc_inode	= pmfs_alloc_inode,
-	.destroy_inode	= pmfs_destroy_inode,
-	.write_inode	= pmfs_write_inode,
-	.dirty_inode	= pmfs_dirty_inode,
-	.evict_inode	= pmfs_evict_inode,
-	.put_super	= pmfs_put_super,
-	.statfs		= pmfs_statfs,
-	.remount_fs	= pmfs_remount,
-	.show_options	= pmfs_show_options,
+	.alloc_inode = pmfs_alloc_inode,
+	.destroy_inode = pmfs_destroy_inode,
+	.write_inode = pmfs_write_inode,
+	.dirty_inode = pmfs_dirty_inode,
+	.evict_inode = pmfs_evict_inode,
+	.put_super = pmfs_put_super,
+	.statfs = pmfs_statfs,
+	.remount_fs = pmfs_remount,
+	.show_options = pmfs_show_options,
 };
 
 static struct dentry *pmfs_mount(struct file_system_type *fs_type,
-				  int flags, const char *dev_name, void *data)
+								 int flags, const char *dev_name, void *data)
 {
 	return mount_bdev(fs_type, flags, dev_name, data, pmfs_fill_super);
 }
 
 static struct file_system_type pmfs_fs_type = {
-	.owner		= THIS_MODULE,
-	.name		= "pmfs",
-	.mount		= pmfs_mount,
-	.kill_sb	= kill_block_super,
+	.owner = THIS_MODULE,
+	.name = "pmfs",
+	.mount = pmfs_mount,
+	.kill_sb = kill_block_super,
 };
 
 static struct inode *pmfs_nfs_get_inode(struct super_block *sb,
-					 u64 ino, u32 generation)
+										u64 ino, u32 generation)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct inode *inode;
@@ -1059,7 +1111,8 @@ static struct inode *pmfs_nfs_get_inode(struct super_block *sb,
 	if (IS_ERR(inode))
 		return ERR_CAST(inode);
 
-	if (generation && inode->i_generation != generation) {
+	if (generation && inode->i_generation != generation)
+	{
 		/* we didn't find the right inode.. */
 		iput(inode);
 		return ERR_PTR(-ESTALE);
@@ -1069,25 +1122,25 @@ static struct inode *pmfs_nfs_get_inode(struct super_block *sb,
 }
 
 static struct dentry *pmfs_fh_to_dentry(struct super_block *sb,
-					 struct fid *fid, int fh_len,
-					 int fh_type)
+										struct fid *fid, int fh_len,
+										int fh_type)
 {
 	return generic_fh_to_dentry(sb, fid, fh_len, fh_type,
-				    pmfs_nfs_get_inode);
+								pmfs_nfs_get_inode);
 }
 
 static struct dentry *pmfs_fh_to_parent(struct super_block *sb,
-					 struct fid *fid, int fh_len,
-					 int fh_type)
+										struct fid *fid, int fh_len,
+										int fh_type)
 {
 	return generic_fh_to_parent(sb, fid, fh_len, fh_type,
-				    pmfs_nfs_get_inode);
+								pmfs_nfs_get_inode);
 }
 
 static const struct export_operations pmfs_export_ops = {
-	.fh_to_dentry	= pmfs_fh_to_dentry,
-	.fh_to_parent	= pmfs_fh_to_parent,
-	.get_parent	= pmfs_get_parent,
+	.fh_to_dentry = pmfs_fh_to_dentry,
+	.fh_to_parent = pmfs_fh_to_parent,
+	.get_parent = pmfs_get_parent,
 };
 
 static int __init init_pmfs_fs(void)
@@ -1134,4 +1187,4 @@ MODULE_DESCRIPTION("Persistent Memory File System");
 MODULE_LICENSE("GPL");
 
 module_init(init_pmfs_fs)
-module_exit(exit_pmfs_fs)
+	module_exit(exit_pmfs_fs)

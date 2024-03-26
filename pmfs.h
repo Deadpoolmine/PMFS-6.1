@@ -48,7 +48,7 @@
 #define pmfs_dbg(s, args ...)           pr_info(s, ## args)
 #define pmfs_dbg1(s, args ...)
 #define pmfs_err(sb, s, args ...)       pmfs_error_mng(sb, s, ## args)
-#define pmfs_warn(s, args ...)          pr_warning(s, ## args)
+#define pmfs_warn(s, args ...)          pr_warn(s, ## args)
 #define pmfs_info(s, args ...)          pr_info(s, ## args)
 
 extern unsigned int pmfs_dbgmask;
@@ -138,18 +138,14 @@ extern int support_clwb;
 
 extern atomic64_t fsync_pages;
 
-typedef struct timespec timing_t;
-
 #define PMFS_START_TIMING(name, start) \
-	{if (measure_timing) getrawmonotonic(&start);}
+	{if (measure_timing) start = ktime_get_raw();}
 
 #define PMFS_END_TIMING(name, start) \
 	{if (measure_timing) { \
-		timing_t end; \
-		getrawmonotonic(&end); \
-		Timingstats[name] += \
-			(end.tv_sec - start.tv_sec) * 1000000000 + \
-			(end.tv_nsec - start.tv_nsec); \
+		ktime_t end; \
+		end = ktime_get_raw(); \
+		Timingstats[name] += (end - start); \
 	} \
 	Countstats[name]++; \
 	}
@@ -208,9 +204,9 @@ extern void pmfs_update_nlink(struct inode *inode, struct pmfs_inode *pi);
 extern void pmfs_update_time(struct inode *inode, struct pmfs_inode *pi);
 extern int pmfs_write_inode(struct inode *inode, struct writeback_control *wbc);
 extern void pmfs_dirty_inode(struct inode *inode, int flags);
-extern int pmfs_notify_change(struct dentry *dentry, struct iattr *attr);
-int pmfs_getattr(const struct path *path, struct kstat *stat,
-		u32 request_mask, unsigned int flags);
+extern int pmfs_notify_change(struct user_namespace *, struct dentry *dentry, struct iattr *iattr);
+int pmfs_getattr(struct user_namespace *ns, const struct path *path,
+			struct kstat *stat, u32 request_mask, unsigned int flags);
 extern void pmfs_set_inode_flags(struct inode *inode, struct pmfs_inode *pi);
 extern void pmfs_get_inode_flags(struct inode *inode, struct pmfs_inode *pi);
 extern unsigned long pmfs_find_region(struct inode *inode, loff_t *offset,
@@ -336,6 +332,7 @@ struct pmfs_sb_info {
 	/* truncate list related structures */
 	struct list_head s_truncate;
 	struct mutex s_truncate_lock;
+	u64 s_dax_part_off;
 };
 
 static inline struct pmfs_sb_info *PMFS_SB(struct super_block *sb)

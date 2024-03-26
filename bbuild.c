@@ -215,7 +215,7 @@ void pmfs_save_blocknode_mappings(struct super_block *sb)
 
 	pmfs_memunlock_range(sb, &super->s_wtime, PMFS_FAST_MOUNT_FIELD_SIZE);
 
-	super->s_wtime = cpu_to_le32(get_seconds());
+	super->s_wtime = cpu_to_le32(ktime_get_seconds());
 	super->s_num_blocknode_allocated = 
 			cpu_to_le64(sbi->num_blocknode_allocated);
 	super->s_num_free_blocks = cpu_to_le64(sbi->num_free_blocks);
@@ -466,11 +466,11 @@ int pmfs_setup_blocknode_map(struct super_block *sb)
 	struct scan_bitmap bm;
 	unsigned long initsize = le64_to_cpu(super->s_size);
 	bool value = false;
-	timing_t start, end;
+	ktime_t start, end;
 
 	/* Always check recovery time */
 	if (measure_timing == 0)
-		getrawmonotonic(&start);
+		start = ktime_get_raw();
 
 	PMFS_START_TIMING(recovery_t, start);
 
@@ -525,10 +525,8 @@ skip:
 end:
 	PMFS_END_TIMING(recovery_t, start);
 	if (measure_timing == 0) {
-		getrawmonotonic(&end);
-		Timingstats[recovery_t] +=
-			(end.tv_sec - start.tv_sec) * 1000000000 +
-			(end.tv_nsec - start.tv_nsec);
+		end = ktime_get_raw();
+		Timingstats[recovery_t] += (end - start);
 	}
 
 	return 0;

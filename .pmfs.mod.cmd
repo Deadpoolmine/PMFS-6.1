@@ -1,0 +1,1 @@
+cmd_/home/deadpool/PM-ARCH/PMFS-6.1/pmfs.mod := printf '%s\n'   bbuild.o balloc.o dir.o file.o inode.o namei.o super.o symlink.o ioctl.o pmfs_stats.o journal.o xip.o wprotect.o | awk '!x[$$0]++ { print("/home/deadpool/PM-ARCH/PMFS-6.1/"$$0) }' > /home/deadpool/PM-ARCH/PMFS-6.1/pmfs.mod
