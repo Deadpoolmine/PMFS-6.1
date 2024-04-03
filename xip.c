@@ -507,14 +507,16 @@ static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
 	err = vmf_insert_mixed(vma, (unsigned long)vmf->address,
 						   pfn_to_pfn_t(xip_pfn));
 
-	if (err == -ENOMEM)
+	if (err == VM_FAULT_OOM)
 		return VM_FAULT_SIGBUS;
 	/*
 	 * err == -EBUSY is fine, we've raced against another thread
 	 * that faulted-in the same page
 	 */
-	if (err != -EBUSY)
+	if (err != VM_FAULT_NOPAGE){
+		pr_alert("%s: err: %d", __func__, err);
 		BUG_ON(err);
+	}
 	return VM_FAULT_NOPAGE;
 }
 
